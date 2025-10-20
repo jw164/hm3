@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 
-const tasks = require('../controllers/tasksController');
++ const tasks = require('../controllers/taskController.js');
 
 // 开发期防呆：如果函数没导到就直接抛错，避免把 undefined 注册到路由上
 ['getTasks', 'getTaskById', 'createTask', 'replaceTask', 'deleteTask'].forEach(fn => {
@@ -18,4 +18,5 @@ router.put('/:id', tasks.replaceTask);
 router.delete('/:id', tasks.deleteTask);
 
 module.exports = router;
+
 
