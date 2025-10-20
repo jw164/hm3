@@ -232,6 +232,111 @@ exports.updateTask = exports.replaceTask;
 
 
 
+/* ===================== 任务统计：GET /api/tasks/stats ===================== */
+exports.getTaskStats = async (req, res) => {
+  try {
+    const total = await Task.countDocuments({});
+
+    // 按状态统计（如果你的模型用 completed 也没关系，下面还会返回 completed 统计）
+    const statusStats = await Task.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    // 按优先级统计（若模型没有 priority，返回会是空数组）
+    const priorityStats = await Task.aggregate([
+      { $group: { _id: '$priority', count: { $sum: 1 } } }
+    ]);
+
+    // 未来 7 天到期但未完成
+    const upcomingDeadline = new Date();
+    upcomingDeadline.setDate(upcomingDeadline.getDate() + 7);
+
+    const upcoming = await Task.countDocuments({
+      deadline: { $lte: upcomingDeadline, $gte: new Date() },
+      completed: { $ne: true },
+    });
+
+    // 已逾期但未完成
+    const overdue = await Task.countDocuments({
+      deadline: { $lt: new Date() },
+      completed: { $ne: true },
+    });
+
+    // 同时给出 completed 的分布，方便前端绘图（可选）
+    const completedStats = await Task.aggregate([
+      { $group: { _id: '$completed', count: { $sum: 1 } } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalUsers: undefined, // 仅占位，前端如果需要用户统计请调用 /api/users/stats
+        totalTasks: total,
+        statusDistribution: statusStats,
+        priorityDistribution: priorityStats,
+        upcomingDeadline: upcoming,
+        overdueTasks: overdue,
+        completedDistribution: completedStats,
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '统计失败', error: String(err) });
+  }
+};
+
+/* ======================= 任务搜索：GET /api/tasks/search ======================= */
+/* 支持：
+   ?keyword=xxx &status=pending|in-progress|completed
+   &priority=low|medium|high|urgent &userId=<id>
+*/
+exports.searchTasks = async (req, res) => {
+  try {
+    const { keyword, status, priority, userId } = req.query;
+
+    const where = {};
+    if (keyword) {
+      where.$or = [
+        { name: { $regex: keyword, $options: 'i' } },
+        { description: { $regex: keyword, $options: 'i' } },
+      ];
+    }
+    if (status) where.status = status;
+    if (priority) where.priority = priority;
+    if (userId) where.assignedUser = userId;
+
+    const docs = await Task.find(where).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, count: docs.length, data: docs });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '搜索失败', error: String(err) });
+  }
+};
+
+/* ================= 批量更新：PATCH /api/tasks/batch-update ================= */
+/* body: { taskIds: string[], status?: string, completed?: boolean } */
+exports.batchUpdateTasks = async (req, res) => {
+  try {
+    const { taskIds, status, completed } = req.body || {};
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ success: false, message: '请提供 taskIds 数组' });
+    }
+
+    const toSet = {};
+    if (status !== undefined) toSet.status = status;
+    if (completed !== undefined) toSet.completed = completed;
+
+    if (Object.keys(toSet).length === 0) {
+      return res.status(400).json({ success: false, message: '请至少提供 status 或 completed 字段' });
+    }
+
+    const result = await Task.updateMany({ _id: { $in: taskIds } }, { $set: toSet });
+    return res
+      .status(200)
+      .json({ success: true, matched: result.matchedCount, modified: result.modifiedCount });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: '批量更新失败', error: String(err) });
+  }
+};
+
 
 
 
