@@ -64,97 +64,142 @@ function showSection(sectionName) {
 
 // -------------------- Dashboard -------------------- //
 async function loadDashboard() {
+  // 小工具：统计 tasks 的数量（where 支持 MP3 的 JSON 查询）
+  const countWhere = async (whereObj) => {
+    const url = `${API_BASE_URL}/tasks?count=true&where=${encodeURIComponent(JSON.stringify(whereObj))}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return 0;
+      const j = await res.json().catch(() => ({}));
+      return typeof j.data === 'number' ? j.data : 0;
+    } catch { return 0; }
+  };
+
   try {
-    // 用户总数
-    const usersCnt = await fetchJSON(`${API_BASE_URL}/users?count=true`);
-    const totalUsers = usersCnt.data ?? 0;
+    // 1) 用户总数
+    const usersCntRes = await fetch(`${API_BASE_URL}/users?count=true`);
+    const usersCntJson = await usersCntRes.json().catch(()=>({}));
+    const totalUsers = usersCntJson.data ?? 0;
     document.getElementById('total-users').textContent = totalUsers;
-    // 暂无活跃/非活跃统计
     document.getElementById('active-users').textContent = '-';
     document.getElementById('inactive-users').textContent = '-';
 
-    // 任务指标（后端需实现 GET /api/tasks/metrics）
-    const metrics = await fetchJSON(`${API_BASE_URL}/tasks/metrics`);
-    const m = metrics.data || {};
+    // 2) 先尝试后端 /tasks/metrics（如果你已经实现了）
+    let metricsOk = false;
+    try {
+      const mRes = await fetch(`${API_BASE_URL}/tasks/metrics`);
+      if (mRes.ok) {
+        const mJson = await mRes.json();
+        if (mJson && mJson.data) {
+          const m = mJson.data;
+          document.getElementById('total-tasks').textContent = m.total ?? '-';
+          document.getElementById('inprogress-tasks').textContent = m.pending ?? '-';
+          document.getElementById('completed-tasks').textContent = m.completed ?? '-';
+          document.getElementById('pending-tasks').textContent = m.pending ?? '-';
+          document.getElementById('upcoming-tasks').textContent = m.upcoming ?? '-';
+          document.getElementById('overdue-tasks').textContent = m.overdue ?? '-';
 
-    document.getElementById('total-tasks').textContent = m.total ?? '-';
-    document.getElementById('inprogress-tasks').textContent = m.pending ?? '-';
-    document.getElementById('completed-tasks').textContent = m.completed ?? '-';
-    document.getElementById('pending-tasks').textContent = m.pending ?? '-';
-    document.getElementById('upcoming-tasks').textContent = m.upcoming ?? '-';
-    document.getElementById('overdue-tasks').textContent = m.overdue ?? '-';
+          const urgent = (m.priority?.urgent || 0);
+          const high = (m.priority?.high || 0);
+          document.getElementById('urgent-tasks').textContent = urgent + high;
+          document.getElementById('urgent-count').textContent = urgent;
+          document.getElementById('high-count').textContent = high;
 
-    const urgent = (m.priority?.urgent || 0);
-    const high = (m.priority?.high || 0);
-    document.getElementById('urgent-tasks').textContent = urgent + high;
-    document.getElementById('urgent-count').textContent = urgent;
-    document.getElementById('high-count').textContent = high;
+          const statusDist = [
+            { _id: 'pending',     count: m.pending || 0 },
+            { _id: 'in-progress', count: m.inProgress || 0 },
+            { _id: 'completed',   count: m.completed || 0 },
+          ];
+          renderStatusChart(statusDist);
+          const prioDist = Object.entries(m.priority || {}).map(([k, v]) => ({ _id: k, count: v }));
+          renderPriorityChart(prioDist);
+          renderTopUsers(m.topUsers || []);
+          metricsOk = true;
+        }
+      }
+    } catch {/* ignore */}
 
-    // 渲染分布条
-    const statusDist = [
-      { _id: 'pending',     count: m.pending || 0 },
-      { _id: 'in-progress', count: m.inProgress || 0 }, // 若后端没统计则为 0
-      { _id: 'completed',   count: m.completed || 0 }
-    ];
-    renderStatusChart(statusDist);
+    // 3) 如果没有 metrics，就用前端组合查询兜底计算
+    if (!metricsOk) {
+      // 所有任务
+      const total = await countWhere({});
 
-    const prioDist = Object.entries(m.priority || {}).map(([k, v]) => ({ _id: k, count: v }));
-    renderPriorityChart(prioDist);
+      // completed=true 或 status=completed/done 都算“已完成”
+      const completed = await countWhere({
+        $or: [
+          { completed: true },
+          { status: { $in: ['completed', 'done', true, 1, 'true'] } }
+        ]
+      });
 
-    renderTopUsers(m.topUsers || []); // 若无则显示占位
+      // 未完成
+      const pending = total - completed;
+
+      // 未来 7 天到期（仅未完成）：兼容 deadline / dueDate
+      const now = new Date().toISOString();
+      const soon = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+      const upcoming = await countWhere({
+        $and: [
+          { $or: [
+            { completed: false },
+            { status: { $in: ['pending', 'todo', 'in-progress', false, 0, 'false'] } }
+          ]},
+          { $or: [
+            { deadline: { $gte: now, $lte: soon } },
+            { dueDate:  { $gte: now, $lte: soon } }
+          ]}
+        ]
+      });
+
+      // 逾期（仅未完成）
+      const overdue = await countWhere({
+        $and: [
+          { $or: [
+            { completed: false },
+            { status: { $in: ['pending', 'todo', 'in-progress', false, 0, 'false'] } }
+          ]},
+          { $or: [
+            { deadline: { $lt: now } },
+            { dueDate:  { $lt: now } }
+          ]}
+        ]
+      });
+
+      // 优先级分布
+      const prios = ['urgent', 'high', 'medium', 'low'];
+      const prioCounts = {};
+      for (const p of prios) {
+        prioCounts[p] = await countWhere({ priority: p });
+      }
+
+      // 更新 UI
+      document.getElementById('total-tasks').textContent = total;
+      document.getElementById('inprogress-tasks').textContent = pending;
+      document.getElementById('completed-tasks').textContent = completed;
+      document.getElementById('pending-tasks').textContent = pending;
+      document.getElementById('upcoming-tasks').textContent = upcoming;
+      document.getElementById('overdue-tasks').textContent = overdue;
+
+      document.getElementById('urgent-tasks').textContent = (prioCounts.urgent || 0) + (prioCounts.high || 0);
+      document.getElementById('urgent-count').textContent = prioCounts.urgent || 0;
+      document.getElementById('high-count').textContent = prioCounts.high || 0;
+
+      const statusDist = [
+        { _id: 'pending',     count: pending },
+        { _id: 'in-progress', count: 0 },
+        { _id: 'completed',   count: completed },
+      ];
+      renderStatusChart(statusDist);
+
+      const prioDist = prios.map(p => ({ _id: p, count: prioCounts[p] || 0 }));
+      renderPriorityChart(prioDist);
+
+      renderTopUsers([]); // 没有后端聚合时，先置空
+    }
   } catch (error) {
     console.error('Failed to load dashboard:', error);
     showToast('Failed to load dashboard data', 'error');
   }
-}
-
-function renderStatusChart(statusData) {
-  const el = document.getElementById('status-chart');
-  const names = { 'pending': 'Pending', 'in-progress': 'In Progress', 'completed': 'Completed', 'cancelled': 'Cancelled' };
-  const total = Math.max(statusData.reduce((s, i) => s + i.count, 0), 1);
-  el.innerHTML = statusData.map(item => `
-    <div class="chart-bar">
-      <div class="chart-label">${names[item._id] ?? item._id}</div>
-      <div class="chart-bar-container">
-        <div class="chart-bar-fill" style="width:${(item.count / total * 100)}%">
-          <span class="chart-value">${item.count}</span>
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderPriorityChart(priorityData) {
-  const el = document.getElementById('priority-chart');
-  const names = { low: 'Low', medium: 'Medium', high: 'High', urgent: 'Urgent' };
-  const total = Math.max(priorityData.reduce((s, i) => s + i.count, 0), 1);
-  el.innerHTML = priorityData.map(item => `
-    <div class="chart-bar">
-      <div class="chart-label">${names[item._id] ?? item._id}</div>
-      <div class="chart-bar-container">
-        <div class="chart-bar-fill" style="width:${(item.count / total * 100)}%">
-          <span class="chart-value">${item.count}</span>
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderTopUsers(topUsers) {
-  const listDiv = document.getElementById('top-users-list');
-  if (!topUsers || topUsers.length === 0) {
-    listDiv.innerHTML = '<p class="placeholder">No data available</p>';
-    return;
-  }
-  listDiv.innerHTML = topUsers.map((u, i) => `
-    <div class="top-user-item">
-      <div class="top-user-info">
-        <div class="top-user-rank">${i + 1}</div>
-        <div><strong>${u.userName}</strong><br><small>${u.userEmail}</small></div>
-      </div>
-      <div class="top-user-badge">${u.taskCount} tasks</div>
-    </div>
-  `).join('');
 }
 
 // -------------------- Users -------------------- //
@@ -523,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadUsers();
   loadTasks();
 });
+
 
 
 
