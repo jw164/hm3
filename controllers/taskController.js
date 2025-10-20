@@ -36,19 +36,56 @@ function normalizeInput(payload = {}) {
   };
 }
 
-/** 兼容 where 中的“别名字段” */
+// 智能映射查询条件：兼容旧字段 status/title/dueDate/userId，
+// 并把 completed:true/false 转成 $or，同时匹配旧的 status 存法。
 function mapWhereKeys(where = {}) {
   const w = { ...where };
-  if (w.title && !w.name) { w.name = w.title; delete w.title; }
-  if (w.dueDate && !w.deadline) { w.deadline = w.dueDate; delete w.dueDate; }
-  if (w.userId && !w.assignedUser) { w.assignedUser = w.userId; delete w.userId; }
+
+  // —— 旧字段 → 标准字段 —— //
+  if (w.title && !w.name) {
+    w.name = w.title;
+    delete w.title;
+  }
+  if (w.dueDate && !w.deadline) {
+    w.deadline = w.dueDate;
+    delete w.dueDate;
+  }
+  if (w.userId && !w.assignedUser) {
+    w.assignedUser = w.userId;
+    delete w.userId;
+  }
+
+  // 如果传了 status 但没传 completed，用 status 推断 completed
   if (w.status !== undefined && w.completed === undefined) {
     const s = String(w.status).toLowerCase();
-    w.completed = (s === 'completed' || s === 'true' || s === '1');
+    w.completed = (s === 'completed' || s === 'done' || s === 'true' || s === '1');
     delete w.status;
   }
+
+  // 若传了 completed（可能是布尔或字符串），构造同时匹配旧 status 的 $or
+  if (w.completed !== undefined) {
+    const isTrue =
+      (typeof w.completed === 'boolean'  && w.completed === true) ||
+      (typeof w.completed === 'string'   && ['true', '1', 'completed', 'done'].includes(w.completed.toLowerCase())) ||
+      (typeof w.completed === 'number'   && Number(w.completed) === 1);
+
+    // 删掉原 completed，用 $or 同时覆盖两种存法
+    delete w.completed;
+
+    w.$or = isTrue
+      ? [
+          { completed: true },
+          { status: { $in: ['completed', 'done', true, 1, 'true'] } }
+        ]
+      : [
+          { completed: false },
+          { status: { $in: ['pending', 'todo', 'in-progress', false, 0, 'false'] } }
+        ];
+  }
+
   return w;
 }
+
 
 /** keep task/user references consistent */
 async function attachTaskToUser(taskDoc, userId) {
@@ -189,6 +226,7 @@ exports.deleteTask = async (req, res) => {
     return sendError(res, 500, 'Failed to delete task');
   }
 };
+
 
 
 
