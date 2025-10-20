@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Management System - API Test Interface</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1 class="nav-logo">📋 Task Management System</h1>
+            <div class="nav-menu">
+                <button class="nav-btn active" onclick="showSection('dashboard')">📊 Dashboard</button>
+                <button class="nav-btn" onclick="showSection('users')">👥 Users</button>
+                <button class="nav-btn" onclick="showSection('tasks')">✅ Tasks</button>
+                <button class="nav-btn" onclick="showSection('search')">🔍 Search</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Dashboard -->
+        <section id="dashboard-section" class="section active">
+            <h2>📊 Dashboard</h2>
+            
+            <div class="stats-grid">
+                <!-- User Stats Card -->
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-content">
+                        <h3>Total Users</h3>
+                        <p class="stat-number" id="total-users">-</p>
+                        <div class="stat-detail">
+                            <span>Active: <span id="active-users">-</span></span>
+                            <span>Inactive: <span id="inactive-users">-</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Task Stats Card -->
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-content">
+                        <h3>Total Tasks</h3>
+                        <p class="stat-number" id="total-tasks">-</p>
+                        <div class="stat-detail">
+                            <span>In Progress: <span id="inprogress-tasks">-</span></span>
+                            <span>Completed: <span id="completed-tasks">-</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pending Tasks -->
+                <div class="stat-card">
+                    <div class="stat-icon">⏰</div>
+                    <div class="stat-content">
+                        <h3>Pending Tasks</h3>
+                        <p class="stat-number" id="pending-tasks">-</p>
+                        <div class="stat-detail">
+                            <span>Upcoming: <span id="upcoming-tasks">-</span></span>
+                            <span>Overdue: <span id="overdue-tasks">-</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Urgent Tasks -->
+                <div class="stat-card">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-content">
+                        <h3>High Priority</h3>
+                        <p class="stat-number" id="urgent-tasks">-</p>
+                        <div class="stat-detail">
+                            <span>Urgent: <span id="urgent-count">-</span></span>
+                            <span>High: <span id="high-count">-</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Area -->
+            <div class="charts-container">
+                <div class="chart-card">
+                    <h3>Task Status Distribution</h3>
+                    <div id="status-chart" class="chart"></div>
+                </div>
+                <div class="chart-card">
+                    <h3>Priority Distribution</h3>
+                    <div id="priority-chart" class="chart"></div>
+                </div>
+            </div>
+
+            <!-- Top Users List -->
+            <div class="top-users-card">
+                <h3>📈 Top 10 Users by Task Count</h3>
+                <div id="top-users-list" class="top-users-list"></div>
+            </div>
+        </section>
+
+        <!-- Users Management -->
+        <section id="users-section" class="section">
+            <div class="section-header">
+                <h2>👥 User Management</h2>
+                <button class="btn btn-primary" onclick="showCreateUserModal()">+ Create User</button>
+            </div>
+
+            <!-- Filters -->
+            <div class="filters">
+                <input type="text" id="user-search" placeholder="Search users..." onkeyup="filterUsers()">
+                <select id="user-role-filter" onchange="filterUsers()">
+                    <option value="">All Roles</option>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                </select>
+                <select id="user-status-filter" onchange="filterUsers()">
+                    <option value="">All Status</option>
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                </select>
+            </div>
+
+            <!-- Users Table -->
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Age</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <tr>
+                            <td colspan="6" class="loading">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="pagination" id="users-pagination"></div>
+        </section>
+
+        <!-- Tasks Management -->
+        <section id="tasks-section" class="section">
+            <div class="section-header">
+                <h2>✅ Task Management</h2>
+                <button class="btn btn-primary" onclick="showCreateTaskModal()">+ Create Task</button>
+            </div>
+
+            <!-- Filters -->
+            <div class="filters">
+                <input type="text" id="task-search" placeholder="Search tasks..." onkeyup="filterTasks()">
+                <select id="task-status-filter" onchange="filterTasks()">
+                    <option value="">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                <select id="task-priority-filter" onchange="filterTasks()">
+                    <option value="">All Priorities</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+            </div>
+
+            <!-- Tasks Grid -->
+            <div class="tasks-grid" id="tasks-grid">
+                <div class="loading-card">Loading...</div>
+            </div>
+
+            <!-- Pagination -->
+            <div class="pagination" id="tasks-pagination"></div>
+        </section>
+
+        <!-- Search Feature -->
+        <section id="search-section" class="section">
+            <h2>🔍 Advanced Search</h2>
+            
+            <div class="search-container">
+                <div class="search-box">
+                    <h3>Search Tasks</h3>
+                    <input type="text" id="advanced-search" placeholder="Enter keywords...">
+                    <div class="search-filters">
+                        <select id="advanced-status">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="in-progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                        <select id="advanced-priority">
+                            <option value="">All Priorities</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="performAdvancedSearch()">Search</button>
+                    </div>
+                </div>
+
+                <div class="search-results" id="search-results">
+                    <p class="placeholder">Enter keywords and click search</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Create/Edit User Modal -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeUserModal()">&times;</span>
+            <h2 id="user-modal-title">Create User</h2>
+            <form id="user-form" onsubmit="submitUserForm(event)">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="user-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" id="user-email" required>
+                </div>
+                <div class="form-group">
+                    <label>Age</label>
+                    <input type="number" id="user-age" min="0" max="150">
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <select id="user-role">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="tel" id="user-phone">
+                </div>
+                <div class="form-group">
+                    <label>Address</label>
+                    <input type="text" id="user-address">
+                </div>
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="user-active" checked>
+                        Active Status
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeUserModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create/Edit Task Modal -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTaskModal()">&times;</span>
+            <h2 id="task-modal-title">Create Task</h2>
+            <form id="task-form" onsubmit="submitTaskForm(event)">
+                <div class="form-group">
+                    <label>Title *</label>
+                    <input type="text" id="task-title" required>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="task-description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="task-status">
+                        <option value="pending">Pending</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="task-priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Due Date *</label>
+                    <input type="date" id="task-duedate" required>
+                </div>
+                <div class="form-group">
+                    <label>Assign to User *</label>
+                    <select id="task-user" required>
+                        <option value="">Select user...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Estimated Hours</label>
+                    <input type="number" id="task-estimated" min="0" step="0.5">
+                </div>
+                <div class="form-group">
+                    <label>Tags (comma separated)</label>
+                    <input type="text" id="task-tags" placeholder="e.g., development,frontend,urgent">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
