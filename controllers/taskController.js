@@ -1,51 +1,53 @@
+// controllers/taskController.js
 const Task = require('../models/Task');
 const User = require('../models/User');
+
+/** 将可能是字符串的 JSON 参数解析为对象 */
+function parseMaybeJSON(val, fallback = undefined) {
+  if (val == null) return fallback;
+  if (typeof val === 'object') return val;
+  try { return JSON.parse(val); } catch { return fallback ?? val; }
+}
 
 /**
  * @desc    获取所有任务
  * @route   GET /api/tasks
  * @access  Public
+ *
+ * 支持：
+ *   ?where={}      (JSON 字符串或对象)
+ *   &sort={}       (JSON)
+ *   &skip=0&limit=10
+ *   &select={}     (JSON)
+ *   &populate={}   (JSON，如 {"path":"userId","select":"name email"})
  */
 exports.getTasks = async (req, res, next) => {
   try {
-    const { where = {}, sort, skip = 0, limit = 10, select, populate } = req.parsedQuery || {};
+    // 兼容 queryParser 中间件 & 直接 query 传参两种情况
+    const q = req.parsedQuery || req.query || {};
 
-    // 构建查询
+    const where    = parseMaybeJSON(q.where, {});
+    const sort     = parseMaybeJSON(q.sort);
+    const select   = parseMaybeJSON(q.select);
+    const populate = parseMaybeJSON(q.populate);
+    const skip     = Number(q.skip || 0);
+    const limit    = Math.min(Number(q.limit || 10), 100);
+
     let query = Task.find(where);
+    if (sort)   query = query.sort(sort);
+    if (select) query = query.select(select);
+    if (populate) query = query.populate(populate);
 
-    // 应用排序
-    if (sort) {
-      query = query.sort(sort);
-    }
-
-    // 应用分页
-    query = query.skip(skip).limit(limit);
-
-    // 应用字段选择
-    if (select) {
-      query = query.select(select);
-    }
-
-    // 应用关联查询
-    if (populate) {
-      query = query.populate(populate);
-    }
-
-    // 执行查询
-    const tasks = await query;
-
-    // 获取总数
-    const total = await Task.countDocuments(where);
+    const [tasks, total] = await Promise.all([
+      query.skip(skip).limit(limit),
+      Task.countDocuments(where)
+    ]);
 
     res.status(200).json({
       success: true,
       count: tasks.length,
       total,
-      pagination: {
-        skip,
-        limit,
-        hasMore: skip + tasks.length < total
-      },
+      pagination: { skip, limit, hasMore: skip + tasks.length < total },
       data: tasks
     });
   } catch (error) {
@@ -60,27 +62,16 @@ exports.getTasks = async (req, res, next) => {
  */
 exports.getTask = async (req, res, next) => {
   try {
-    const { populate } = req.parsedQuery || {};
-    
+    const q = req.parsedQuery || req.query || {};
+    const populate = parseMaybeJSON(q.populate);
+
     let query = Task.findById(req.params.id);
-    
-    if (populate) {
-      query = query.populate(populate);
-    }
-    
+    if (populate) query = query.populate(populate);
+
     const task = await query;
+    if (!task) return res.status(404).json({ success: false, message: '未找到该任务' });
 
-    if (!task) {
-      return res.status(404).json({
-        success: false,
-        message: '未找到该任务'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: task
-    });
+    res.status(200).json({ success: true, data: task });
   } catch (error) {
     next(error);
   }
@@ -90,29 +81,34 @@ exports.getTask = async (req, res, next) => {
  * @desc    创建新任务
  * @route   POST /api/tasks
  * @access  Public
+ *
+ * 现在允许不传 userId；传了才校验用户是否存在
  */
 exports.createTask = async (req, res, next) => {
   try {
-    // 验证用户是否存在
-    const user = await User.findById(req.body.userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: '用户不存在，无法创建任务'
-      });
+    const { userId, title, status, priority, dueDate } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ success: false, message: 'title 必填' });
     }
 
-    const task = await Task.create(req.body);
+    // 传了 userId 才校验
+    if (userId) {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: '用户不存在，无法创建任务' });
+      }
+    }
 
-    // 返回带用户信息的任务
-    await task.populate('userId', 'name email');
-
-    res.status(201).json({
-      success: true,
-      message: '任务创建成功',
-      data: task
+    const task = await Task.create({
+      ...req.body,
+      status: status || 'pending',
+      priority: priority || 'medium',
+      dueDate: dueDate || new Date()
     });
+
+    await task.populate('userId', 'name email'); // 返回带用户信息
+    res.status(201).json({ success: true, message: '任务创建成功', data: task });
   } catch (error) {
     next(error);
   }
@@ -125,38 +121,23 @@ exports.createTask = async (req, res, next) => {
  */
 exports.updateTask = async (req, res, next) => {
   try {
-    // 如果更新 userId，验证用户是否存在
+    // 若更新 userId，仍进行校验（允许清空 userId）
     if (req.body.userId) {
       const user = await User.findById(req.body.userId);
       if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: '用户不存在，无法更新任务'
-        });
+        return res.status(404).json({ success: false, message: '用户不存在，无法更新任务' });
       }
     }
 
     const task = await Task.findByIdAndUpdate(
       req.params.id,
       req.body,
-      {
-        new: true,
-        runValidators: true
-      }
+      { new: true, runValidators: true }
     ).populate('userId', 'name email');
 
-    if (!task) {
-      return res.status(404).json({
-        success: false,
-        message: '未找到该任务'
-      });
-    }
+    if (!task) return res.status(404).json({ success: false, message: '未找到该任务' });
 
-    res.status(200).json({
-      success: true,
-      message: '任务更新成功',
-      data: task
-    });
+    res.status(200).json({ success: true, message: '任务更新成功', data: task });
   } catch (error) {
     next(error);
   }
@@ -170,21 +151,10 @@ exports.updateTask = async (req, res, next) => {
 exports.deleteTask = async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id);
-
-    if (!task) {
-      return res.status(404).json({
-        success: false,
-        message: '未找到该任务'
-      });
-    }
+    if (!task) return res.status(404).json({ success: false, message: '未找到该任务' });
 
     await task.deleteOne();
-
-    res.status(200).json({
-      success: true,
-      message: '任务已删除',
-      data: {}
-    });
+    res.status(200).json({ success: true, message: '任务已删除', data: {} });
   } catch (error) {
     next(error);
   }
@@ -200,31 +170,17 @@ exports.batchUpdateTasks = async (req, res, next) => {
     const { taskIds, status } = req.body;
 
     if (!taskIds || !Array.isArray(taskIds) || taskIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: '请提供任务 ID 数组'
-      });
+      return res.status(400).json({ success: false, message: '请提供任务 ID 数组' });
     }
-
     if (!status) {
-      return res.status(400).json({
-        success: false,
-        message: '请提供要更新的状态'
-      });
+      return res.status(400).json({ success: false, message: '请提供要更新的状态' });
     }
 
-    const result = await Task.updateMany(
-      { _id: { $in: taskIds } },
-      { status }
-    );
-
+    const result = await Task.updateMany({ _id: { $in: taskIds } }, { status });
     res.status(200).json({
       success: true,
       message: `成功更新 ${result.modifiedCount} 个任务`,
-      data: {
-        matchedCount: result.matchedCount,
-        modifiedCount: result.modifiedCount
-      }
+      data: { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount }
     });
   } catch (error) {
     next(error);
@@ -240,73 +196,29 @@ exports.getTaskStats = async (req, res, next) => {
   try {
     const totalTasks = await Task.countDocuments();
 
-    // 按状态统计
-    const statusStats = await Task.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const statusStats = await Task.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+    const priorityStats = await Task.aggregate([{ $group: { _id: '$priority', count: { $sum: 1 } } }]);
 
-    // 按优先级统计
-    const priorityStats = await Task.aggregate([
-      {
-        $group: {
-          _id: '$priority',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-
-    // 即将到期的任务（7天内）
     const upcomingDeadline = new Date();
     upcomingDeadline.setDate(upcomingDeadline.getDate() + 7);
-    
+
     const tasksWithUpcomingDeadline = await Task.countDocuments({
       dueDate: { $lte: upcomingDeadline, $gte: new Date() },
       status: { $ne: 'completed' }
     });
 
-    // 已逾期的任务
     const overdueTasks = await Task.countDocuments({
       dueDate: { $lt: new Date() },
       status: { $ne: 'completed' }
     });
 
-    // 按用户统计任务数
     const tasksPerUser = await Task.aggregate([
-      {
-        $group: {
-          _id: '$userId',
-          taskCount: { $sum: 1 }
-        }
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      {
-        $unwind: '$user'
-      },
-      {
-        $project: {
-          userName: '$user.name',
-          userEmail: '$user.email',
-          taskCount: 1
-        }
-      },
-      {
-        $sort: { taskCount: -1 }
-      },
-      {
-        $limit: 10
-      }
+      { $group: { _id: '$userId', taskCount: { $sum: 1 } } },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
+      { $unwind: '$user' },
+      { $project: { userName: '$user.name', userEmail: '$user.email', taskCount: 1 } },
+      { $sort: { taskCount: -1 } },
+      { $limit: 10 }
     ]);
 
     res.status(200).json({
@@ -334,42 +246,25 @@ exports.searchTasks = async (req, res, next) => {
   try {
     const { keyword, status, priority, userId } = req.query;
 
-    let query = {};
-
-    // 关键词搜索
+    const query = {};
     if (keyword) {
       query.$or = [
         { title: { $regex: keyword, $options: 'i' } },
         { description: { $regex: keyword, $options: 'i' } }
       ];
     }
-
-    // 状态筛选
-    if (status) {
-      query.status = status;
-    }
-
-    // 优先级筛选
-    if (priority) {
-      query.priority = priority;
-    }
-
-    // 用户筛选
-    if (userId) {
-      query.userId = userId;
-    }
+    if (status)   query.status = status;
+    if (priority) query.priority = priority;
+    if (userId)   query.userId = userId;
 
     const tasks = await Task.find(query)
       .populate('userId', 'name email')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      count: tasks.length,
-      data: tasks
-    });
+    res.status(200).json({ success: true, count: tasks.length, data: tasks });
   } catch (error) {
     next(error);
   }
 };
+
 
