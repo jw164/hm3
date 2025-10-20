@@ -7,6 +7,7 @@ const path = require('path');
 
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
+const queryParser = require('./middleware/queryParser'); // ✅ 新增
 
 // routes
 const userRoutes = require('./routes/userRoutes');
@@ -15,44 +16,52 @@ const taskRoutes = require('./routes/taskRoutes');
 const PORT = Number(process.env.PORT) || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 
-// ========== App ==========
 const app = express();
-
-// Render / 反向代理后获取正确的协议和 IP
 app.set('trust proxy', 1);
 
 // -------- CORS --------
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
+const defaultOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://jw164.github.io',           // ✅ GitHub Pages
+];
+const extraFromEnv = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-const corsOptions = {
-  origin: allowedOrigins.length ? allowedOrigins : true, // 没配就全放行
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  credentials: false,
-};
+const allowedOrigins = [...new Set([...defaultOrigins, ...extraFromEnv])];
 
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.use(cors({
+  origin: (origin, cb) => {
+    // 允许无 Origin（如 curl/Render 健康检查）
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}));
+
+app.options('*', cors());
 
 // -------- Middlewares --------
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 if (NODE_ENV === 'development') app.use(morgan('dev'));
 
-// -------- Static --------
-// 你的前端静态文件（GitHub Pages 已托管前端时，这段不影响）
+// ✅ 解析 where/sort/select/populate 等查询参数，供控制器使用 req.parsedQuery
+app.use(queryParser);
+
+// -------- Static (可选) --------
 app.use(express.static(path.join(__dirname, 'public')));
 
 // -------- Health checks --------
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'API 运行正常',
-    timestamp: new Date().toISOString(),
-  });
+  res.status(200).json({ success: true, message: 'API 运行正常', timestamp: new Date().toISOString() });
 });
+
+// ✅ 非常简易的探活
+app.get('/api/ping', (req, res) => res.status(200).send('pong'));
 
 // API welcome
 app.get('/api', (req, res) => {
@@ -87,10 +96,10 @@ app.use((req, res) => {
 // 错误处理中间件
 app.use(errorHandler);
 
-// ========== Bootstrap: 先连库，再启动 ==========
+// ========== Bootstrap ==========
 async function start() {
   try {
-    await connectDB(); // 这里会读取 process.env.MONGODB_URI
+    await connectDB(); // 读取 process.env.MONGODB_URI
     const server = app.listen(PORT, () => {
       const host = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
       console.log(`\n✅ Server is running on ${host}`);
@@ -98,7 +107,6 @@ async function start() {
       console.log(`🧾 API: ${host}/api`);
     });
 
-    // 未捕获的 Promise
     process.on('unhandledRejection', (err) => {
       console.error('UnhandledRejection:', err?.message || err);
       server.close(() => process.exit(1));
@@ -112,4 +120,5 @@ async function start() {
 start();
 
 module.exports = app;
+
 
