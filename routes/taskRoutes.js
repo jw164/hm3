@@ -3,10 +3,11 @@ const express = require('express');
 const router = express.Router();
 const {
   getTasks,
-  getTaskById,
+  getTask,
   createTask,
   updateTask,
   deleteTask,
+  batchUpdateTasks,
   getTaskStats,
   searchTasks,
 } = require('../controllers/taskController');
@@ -16,18 +17,16 @@ router.route('/')
   .get(getTasks)
   .post(createTask);
 
-// 统计
+// 统计 & 搜索 & 批量更新
 router.get('/stats', getTaskStats);
-
-// 搜索
 router.get('/search', searchTasks);
+router.patch('/batch-update', batchUpdateTasks);
 
 // 详情 / 更新 / 删除
 router.route('/:id')
-  .get(getTaskById)
+  .get(getTask)
   .put(updateTask)
   .delete(deleteTask);
 
 module.exports = router;
-
 
