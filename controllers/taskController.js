@@ -227,6 +227,10 @@ exports.deleteTask = async (req, res) => {
   }
 };
 
+exports.getTask = exports.getTaskById;
+exports.updateTask = exports.replaceTask;
+
+
 
 
 
