@@ -1,8 +1,8 @@
-// controllers/tasksController.js
+// controllers/taskController.js
 const Task = require('../models/Task');
 const User = require('../models/User');
 
-/* ----------------------------- utils/helpers ----------------------------- */
+/* ----------------------------- helpers ----------------------------- */
 function sendSuccess(res, status = 200, message = 'OK', data = null) {
   return res.status(status).json({ message, data });
 }
@@ -16,6 +16,38 @@ function safeParseJSON(raw, fallback = undefined) {
 function toInt(val, def) {
   const n = Number(val);
   return Number.isFinite(n) ? n : def;
+}
+
+/** 兼容你的字段 -> 统一为作业规范字段 */
+function normalizeInput(payload = {}) {
+  const name      = payload.name      ?? payload.title;
+  const deadline  = payload.deadline  ?? payload.dueDate;
+  const completed = payload.completed ?? (payload.status ? String(payload.status).toLowerCase() === 'completed' : false);
+  const assignedUser = payload.assignedUser ?? payload.userId ?? '';
+  const assignedUserName = payload.assignedUserName ?? payload.userName ?? 'unassigned';
+
+  return {
+    name,
+    description: payload.description ?? '',
+    deadline,
+    completed,
+    assignedUser,
+    assignedUserName,
+  };
+}
+
+/** 兼容 where 中的“别名字段” */
+function mapWhereKeys(where = {}) {
+  const w = { ...where };
+  if (w.title && !w.name) { w.name = w.title; delete w.title; }
+  if (w.dueDate && !w.deadline) { w.deadline = w.dueDate; delete w.dueDate; }
+  if (w.userId && !w.assignedUser) { w.assignedUser = w.userId; delete w.userId; }
+  if (w.status !== undefined && w.completed === undefined) {
+    const s = String(w.status).toLowerCase();
+    w.completed = (s === 'completed' || s === 'true' || s === '1');
+    delete w.status;
+  }
+  return w;
 }
 
 /** keep task/user references consistent */
@@ -47,12 +79,13 @@ async function detachTaskFromUser(taskDoc, userId) {
 /* --------------------------------- GET / --------------------------------- */
 exports.getTasks = async (req, res) => {
   try {
-    // 解析查询参数
-    const where  = safeParseJSON(req.query.where, {});
+    let where  = safeParseJSON(req.query.where, {});
+    where = mapWhereKeys(where);
+
     const sort   = safeParseJSON(req.query.sort, undefined);
     const select = safeParseJSON(req.query.select, undefined);
     const skip   = toInt(req.query.skip, 0);
-    const limit  = toInt(req.query.limit, 100); // MP3 要求：tasks 默认 100
+    const limit  = toInt(req.query.limit, 100); // MP3: tasks 默认 100
     const count  = String(req.query.count).toLowerCase() === 'true';
 
     if (count) {
@@ -74,7 +107,6 @@ exports.getTasks = async (req, res) => {
 };
 
 /* ------------------------------ GET /:id --------------------------------- */
-// 支持在 /:id 上应用 select
 exports.getTaskById = async (req, res) => {
   try {
     const select = safeParseJSON(req.query.select, undefined);
@@ -91,24 +123,16 @@ exports.getTaskById = async (req, res) => {
 /* -------------------------------- POST / --------------------------------- */
 exports.createTask = async (req, res) => {
   try {
-    const payload = req.body || {};
-    // 必填校验
-    if (!payload.name || !payload.deadline) {
-      return sendError(res, 400, 'Task must include name and deadline');
+    const body = normalizeInput(req.body || {});
+    // 必填校验（兼容）
+    if (!body.name || !body.deadline) {
+      return sendError(res, 400, 'Task must include name (or title) and deadline (or dueDate)');
     }
-    // 设置合理默认值
-    const task = new Task({
-      name: payload.name,
-      description: payload.description ?? '',
-      deadline: payload.deadline,
-      completed: payload.completed ?? false,
-      assignedUser: payload.assignedUser ?? '',
-      assignedUserName: payload.assignedUserName ?? 'unassigned',
-    });
 
+    const task = new Task(body);
     const saved = await task.save();
 
-    // 双向引用：若指定 assignedUser，则尝试维护 pendingTasks
+    // 双向引用：若指定 assignedUser，则维护 pendingTasks
     if (saved.assignedUser) {
       await attachTaskToUser(saved, saved.assignedUser);
     }
@@ -119,45 +143,28 @@ exports.createTask = async (req, res) => {
 };
 
 /* -------------------------------- PUT /:id ------------------------------- */
-// MP3 要求：PUT 语义为“整体替换”
 exports.replaceTask = async (req, res) => {
   try {
     const id = req.params.id;
-    const body = req.body || {};
-
-    if (!body.name || !body.deadline) {
-      return sendError(res, 400, 'Task must include name and deadline');
-    }
-
-    // 找到旧任务以便处理解绑/改绑
     const oldTask = await Task.findById(id);
     if (!oldTask) return sendError(res, 404, 'Task not found');
 
-    // 构造新的字段（整体替换）
-    const next = {
-      name: body.name,
-      description: body.description ?? '',
-      deadline: body.deadline,
-      completed: body.completed ?? false,
-      assignedUser: body.assignedUser ?? '',
-      assignedUserName: body.assignedUserName ?? 'unassigned',
-    };
+    const body = normalizeInput(req.body || {});
+    if (!body.name || !body.deadline) {
+      return sendError(res, 400, 'Task must include name (or title) and deadline (or dueDate)');
+    }
 
-    // 更新
-    const updated = await Task.findByIdAndUpdate(id, next, { new: true });
+    const updated = await Task.findByIdAndUpdate(id, body, { new: true });
 
-    // 维护双向引用
     const oldUser = oldTask.assignedUser || '';
     const newUser = updated.assignedUser || '';
 
-    // 1) 如果改绑了用户，先从旧用户 pending 里移除
     if (oldUser && oldUser !== newUser) {
       await detachTaskFromUser(updated, oldUser);
     }
-    // 2) 根据完成状态与新用户，做相应处理
     if (newUser) {
       if (updated.completed === false) await attachTaskToUser(updated, newUser);
-      else await detachTaskFromUser(updated, newUser); // 已完成则不应在 pending 里
+      else await detachTaskFromUser(updated, newUser);
     }
 
     return sendSuccess(res, 200, 'OK', updated);
@@ -173,18 +180,16 @@ exports.deleteTask = async (req, res) => {
     const toDelete = await Task.findById(id);
     if (!toDelete) return sendError(res, 404, 'Task not found');
 
-    // 从用户 pendingTasks 中移除
     if (toDelete.assignedUser) {
       await detachTaskFromUser(toDelete, toDelete.assignedUser);
     }
-
     await Task.findByIdAndDelete(id);
-    // 204: No Content（MP 要求之一）
-    return res.status(204).send();
+    return res.status(204).send(); // No Content
   } catch (err) {
     return sendError(res, 500, 'Failed to delete task');
   }
 };
+
 
 
 
