@@ -1,32 +1,21 @@
 // routes/taskRoutes.js
 const express = require('express');
 const router = express.Router();
-const {
-  getTasks,
-  getTask,
-  createTask,
-  updateTask,
-  deleteTask,
-  batchUpdateTasks,
-  getTaskStats,
-  searchTasks,
-} = require('../controllers/taskController');
 
-// 列表 & 创建
-router.route('/')
-  .get(getTasks)
-  .post(createTask);
+const tasks = require('../controllers/tasksController');
 
-// 统计 & 搜索 & 批量更新
-router.get('/stats', getTaskStats);
-router.get('/search', searchTasks);
-router.patch('/batch-update', batchUpdateTasks);
+// 开发期防呆：如果函数没导到就直接抛错，避免把 undefined 注册到路由上
+['getTasks', 'getTaskById', 'createTask', 'replaceTask', 'deleteTask'].forEach(fn => {
+  if (typeof tasks[fn] !== 'function') {
+    throw new Error(`tasksController.${fn} is not a function (got ${typeof tasks[fn]})`);
+  }
+});
 
-// 详情 / 更新 / 删除
-router.route('/:id')
-  .get(getTask)
-  .put(updateTask)
-  .delete(deleteTask);
+router.get('/', tasks.getTasks);
+router.get('/:id', tasks.getTaskById);
+router.post('/', tasks.createTask);
+router.put('/:id', tasks.replaceTask);
+router.delete('/:id', tasks.deleteTask);
 
 module.exports = router;
 
