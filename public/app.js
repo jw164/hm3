@@ -1,5 +1,11 @@
-// API Base URL
-const API_BASE_URL = 'http://localhost:3000/api';
+// ==== API Base URL（自动判断本地 or 线上）====
+const API_ORIGIN =
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:3000'                 // 本地开发
+    : 'https://hm3-api.onrender.com';         // Render 线上
+
+// 如果后端路由前缀是 /api（你的 server.js 是这样的），就保留 /api
+const API_BASE_URL = `${API_ORIGIN}/api`;
 
 // Global Variables
 let currentEditUserId = null;
@@ -46,7 +52,8 @@ function showSection(sectionName) {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    // 注意：这里依赖浏览器事件对象存在
+    if (window.event && event.target) event.target.classList.add('active');
     
     // Load data based on section
     if (sectionName === 'dashboard') {
@@ -687,3 +694,4 @@ function changePage(type, page, limit) {
         loadTasks(page, limit);
     }
 }
+
