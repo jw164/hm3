@@ -1,0 +1,6 @@
+timestamp,tool,prompt_summary,output_summary,usage_type,file_modified
+2025-10-19T13:45:00Z,ChatGPT,"Asked for help fixing API route structure and improving query parameters in Express.","Provided revised route and controller code with query filtering examples.","code modification","src/routes/taskRoutes.js"
+2025-10-19T14:00:00Z,ChatGPT,"Requested explanation for buildQuery function and JSON query parsing.","Explained logic and best practices for parsing 'where', 'sort', and 'populate' parameters.","learning / understanding","src/utils/queryBuilder.js"
+2025-10-19T14:15:00Z,ChatGPT,"Asked to generate full README.md for Task Management API project.","Generated a complete, formatted English README with usage examples and data model details.","documentation generation","README.md"
+2025-10-19T14:30:00Z,ChatGPT,"Requested translation of development notes from Chinese to English.","Translated ' sections clearly and professionally.","documentation translation","README.md"
+2025-10-19T14:40:00Z,ChatGPT,"Asked what GitHub_Token_Guide.md and API_EXAMPLES.md are for and whether they can be deleted.","Explained purpose of both files and confirmed they can be safely deleted if not used in CI/CD.","clarification / repo cleanup","N/A"
