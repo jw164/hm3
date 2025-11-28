@@ -34,17 +34,9 @@ const extraFromEnv = (process.env.CORS_ORIGIN || '')
 
 const allowedOrigins = [...new Set([...defaultOrigins, ...extraFromEnv])];
 
-app.use(cors({
-  origin: (origin, cb) => {
-    // 允许无 Origin（如 curl/Render 健康检查）
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    return cb(new Error(`CORS blocked: ${origin}`));
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-}));
-
+app.use(cors());
 app.options('*', cors());
+
 
 // -------- Middlewares --------
 app.use(express.json({ limit: '1mb' }));
