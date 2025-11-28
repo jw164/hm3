@@ -82,6 +82,7 @@ app.get('/api', (req, res) => {
 // -------- Routes --------
 app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/todos', todoRoutes);  
 
 // (可选) 根路径跳到前端首页
 app.get('/', (req, res) => {
@@ -95,6 +96,9 @@ app.use((req, res) => {
 
 // 错误处理中间件
 app.use(errorHandler);
+
+
+
 
 // ========== Bootstrap ==========
 async function start() {
